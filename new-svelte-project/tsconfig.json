@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    // 기본 컴파일러 옵션들...
+  },
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
