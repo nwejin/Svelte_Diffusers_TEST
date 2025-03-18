@@ -17,7 +17,7 @@ app.add_middleware(
 )
 
 
-model_id = "runwayml/stable-diffusion-v1-5"  # Anything-V3.0 모델
+model_id = "runwayml/stable-diffusion-v1-5" 
 
 # Linaqruf/anything-v3.0
 # runwayml/stable-diffusion-v1-5
@@ -30,6 +30,7 @@ pipe = StableDiffusionPipeline.from_pretrained(
     torch_dtype=torch.float32,  # MPS에서는 float32가 더 안정적
     safety_checker=None
 )
+
 pipe = pipe.to(device)
 pipe.enable_attention_slicing()
 pipe.enable_vae_tiling()

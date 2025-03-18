@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.0.14",
+    "lucide-svelte": "^0.482.0",
     "prettier-plugin-svelte": "^3.3.3"
   }
 }
