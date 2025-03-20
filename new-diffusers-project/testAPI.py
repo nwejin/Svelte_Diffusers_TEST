@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import torch
 from diffusers import StableDiffusionPipeline
 import base64
 from io import BytesIO
+import asyncio
 
 app = FastAPI()
 # CORS 설정
@@ -43,8 +44,31 @@ class TextToImageRequest(BaseModel):
     num_inference_steps: int = 20
     guidance_scale: float = 7.5
 
+
+current_progress = 0
+def progress_callback(step: int, timestep: int, latents: torch.FloatTensor):
+    global current_progress
+    current_progress = int((step +1)/ pipe.config.num_inference_steps * 100)
+
+@app.websocket("/ws/progress")
+async def progress_websocket(websocket: WebSocket):
+    await websocket.accept()
+    global current_progress
+    try:
+        while True:
+            await websocket.send_json({"progress": current_progress})
+            await asyncio.sleep(0.1)
+            if current_progress >= 100:
+                break
+    except Exception:
+        pass
+    finally:
+        current_progress = 0
+
 @app.post("/sdapi/v1/txt2img")
 async def generate_image(request: TextToImageRequest):
+    global current_progress
+    current_progress = 0
     try:
         # 이미지 생성
         image = pipe(
@@ -54,6 +78,8 @@ async def generate_image(request: TextToImageRequest):
             height=request.height,
             num_inference_steps=request.num_inference_steps,
             guidance_scale=request.guidance_scale,
+            callback=progress_callback,
+            callback_steps=1
         ).images[0]
 
         # 이미지를 base64로 변환

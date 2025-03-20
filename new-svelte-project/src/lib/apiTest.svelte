@@ -4,13 +4,13 @@
   import { UserRoundPlus } from "lucide-svelte";
 
   // 전체 옵션
-  const sexOptions = ["male", "female"];
+  const genderOptions = ["male", "female"];
   const ageOptions = ["10", "20", "30", "40"];
   const classOptions = ["Warrior", "Knight", "Thief", "Archer", "Wizard"];
   const personalityOptions = ["ENFP", "ISTJ", "ESTJ", "INFP"];
 
   // 선택 옵션
-  let selectedSex = "male";
+  let selectedGender = "male";
   let selectedAge = "20";
   let selectedClass = "Knight";
   let selectedPersonality = "ENFP";
@@ -20,8 +20,11 @@
   let generatedImage: string | null = null;
   let errorMessage: string | null = null;
 
+  let progress = 0;
+  let socket: WebSocket | null = null;
+
   function generatePrompt(): string {
-    return `anime, background none, solo, masterpiece, best quality, 1${selectedSex}, age: ${selectedAge}, class: ${selectedClass}, personality: ${selectedPersonality}`;
+    return `anime, dark background, solo, masterpiece, best quality, 1${selectedGender}, age: ${selectedAge}, class: ${selectedClass}, personality: ${selectedPersonality}`;
   }
 
   let steps = 20;
@@ -32,6 +35,24 @@
     isLoading = true;
     generatedImage = null;
     errorMessage = null;
+    progress = 0;
+
+    // 진행상황 websocket
+    socket = new WebSocket("ws://127.0.0.1:7861/ws/progress");
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      progress = data.progress;
+    };
+
+    socket.onerror = (error) => {
+      console.log("websocket 오류", error);
+      socket?.close();
+    };
+
+    socket.onclose = () => {
+      socket = null;
+    };
 
     try {
       const payload = {
@@ -75,6 +96,7 @@
           : "알 수 없는 오류가 발생했습니다.";
     } finally {
       isLoading = false;
+      socket?.close();
     }
   }
 </script>
@@ -83,13 +105,18 @@
   <!-- 이미지 영역 -->
   <div class="flex flex-col items-center justify-center mb-8 min-h-48">
     {#if isLoading}
-      <div
-        class="flex flex-col items-center justify-center text-center h-96 aspect-square bg-none"
-      >
+      <div class="text-center">
+        <p class="mb-3 text-gray-700">캐릭터를 생성하는 중입니다...</p>
+        <div class="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+          <div
+            class="bg-blue-600 h-2.5 rounded-full"
+            style="width: {progress}%"
+          ></div>
+        </div>
+        <p class="text-sm text-gray-600">{progress}% 완료</p>
         <div
-          class="inline-block w-20 h-20 mb-5 border-8 border-blue-200 rounded-full border-l-blue-600 animate-spin"
+          class="inline-block w-8 h-8 mt-2 border-4 border-blue-200 rounded-full border-l-blue-600 animate-spin"
         ></div>
-        <p class="text-gray-700">캐릭터를 생성하는 중입니다...</p>
       </div>
     {:else if !generatedImage && !errorMessage}
       <div
@@ -133,11 +160,11 @@
         >
         <select
           id="sex"
-          bind:value={selectedSex}
+          bind:value={selectedGender}
           class="w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          {#each sexOptions as sex}
-            <option value={sex}>{sex}</option>
+          {#each genderOptions as gender}
+            <option value={gender}>{gender}</option>
           {/each}
         </select>
       </div>
