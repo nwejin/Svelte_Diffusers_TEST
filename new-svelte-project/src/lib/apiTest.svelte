@@ -481,13 +481,12 @@
 		</div>
 	</div>
 
-	<!-- 오른쪽 컬럼: 이미지 결과 -->
-	<div class="flex flex-col gap-6">
+	<div class="flex flex-col w-full gap-6">
 		<div class="w-full p-4 text-center bg-white shadow-lg rounded-xl">
-			<h2 class="mb-2 text-xl font-bold text-gray-800">캐릭터 결과</h2>
+			<!-- <h2 class="mb-2 text-xl font-bold text-gray-800">캐릭터 결과</h2> -->
 
 			<div
-				class="flex flex-col items-center justify-center w-full min-h-[500px]"
+				class="flex flex-col items-center justify-center w-full aspect-square"
 			>
 				{#if isLoading}
 					<div class="text-center">
@@ -500,11 +499,8 @@
 					<div
 						class="flex items-center justify-center w-full max-w-md bg-gray-100 rounded-lg aspect-square"
 					>
-						<div class="text-gray-400">
+						<div class="flex flex-col items-center text-gray-400">
 							<UserRoundPlus size={100} />
-							<p class="mt-4 text-gray-500">
-								선택한 옵션으로 캐릭터를 생성합니다
-							</p>
 						</div>
 					</div>
 				{:else if errorMessage}
