@@ -1,20 +1,29 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { UserRoundPlus, ArrowRight, ArrowLeft, Check } from "lucide-svelte";
+	import { UserRound, ArrowRight, ArrowLeft, Check } from "lucide-svelte";
 	import { promptConfig } from "../config";
 
 	const { promptOptions, defaultSelections } = promptConfig;
 
 	// 선택 옵션 (값은 영어로 저장)
 	let selectedGender = defaultSelections.selectedGender;
+	let selectedAge = defaultSelections.selectedAge;
 	let selectedTheme = defaultSelections.selectedTheme;
+	let selectedClass = defaultSelections.selectedClass;
+
+	// 외형
+	let selectedBodyType = defaultSelections.selectedBodyType;
+	let selectedClothing = defaultSelections.selectedClothing;
+	let selectedHairColor = defaultSelections.selectedHairColor;
+	let selectedHairLength = defaultSelections.selectedHairLength;
+	let selectedHairCurl = defaultSelections.selectedHairCurl;
+	let selectedEyeColor = defaultSelections.selectedEyeColor;
+	let selectedEyeSize = defaultSelections.selectedEyeSize;
+
+	// 배경
 	let selectedFamily = defaultSelections.selectedFamily;
 	let selectedFamilyHistory = defaultSelections.selectedFamilyHistory;
 	let selectedRegion = defaultSelections.selectedRegion;
-	let selectedAge = defaultSelections.selectedAge;
-	let selectedBodyType = defaultSelections.selectedBodyType;
-	let selectedClothing = defaultSelections.selectedClothing;
-	let selectedClass = defaultSelections.selectedClass;
 	let selectedPersonality = defaultSelections.selectedPersonality;
 
 	// 생성 관련
@@ -24,13 +33,10 @@
 	let currentStep = 0;
 
 	const steps = [
-		{ name: "기본 정보", fields: ["gender", "theme", "age"] },
-		{ name: "외형", fields: ["bodyType", "clothing", "class"] },
-		{
-			name: "배경",
-			fields: ["family", "familyHistory", "region", "personality"],
-		},
-		{ name: "확인", fields: [] },
+		{ name: "기본 정보" },
+		{ name: "외형" },
+		{ name: "배경" },
+		{ name: "확인" },
 	];
 
 	interface Option {
@@ -56,12 +62,7 @@
 	};
 
 	const generatePrompt = (): string => {
-		return `anime, gray background, solo, masterpiece, best quality, amazing quality, full body shot, standing, 
-    1${selectedGender}, ${selectedTheme}, 
-    family: ${selectedFamily}, family history: ${selectedFamilyHistory}, 
-    region: ${selectedRegion}, age: ${selectedAge}, 
-    body type: ${selectedBodyType}, clothing: ${selectedClothing}, 
-    class: ${selectedClass}, personality: ${selectedPersonality}`;
+		return `(masterpiece, best quality, high detail, anime, no background object, grey background, full body shot), a ${selectedAge} ${selectedBodyType} ${selectedGender} character in ${selectedTheme} setting, wearing a ${selectedClothing}, with ${selectedHairColor} ${selectedHairLength} hair (${selectedHairCurl}), ${selectedEyeColor} eyes, ${selectedEyeSize} eyes, detailed facial features, expressive pose, cinematic lighting, highly detailed clothing, intricate textures, ultra HD, (sharp focus, depth of field)`;
 	};
 
 	async function generateImage() {
@@ -76,7 +77,7 @@
 					"((bad hands:1)), ((extra fingers:1)), ((deformed hands:1)), ((unhealthy hands:1)), ((excess limbs:1.1)),((lowres)),((worst quality)), ((bad quality)), ((low quality)), naked, nsfw",
 				num_inference_steps: 20,
 				width: 512,
-				height: 512,
+				height: 768,
 				guidance_scale: 7,
 			};
 
@@ -129,18 +130,21 @@
 						class:text-blue-600={currentStep >= index}
 						class:text-gray-400={currentStep < index}
 					>
-						<div
+						<button
 							class="flex items-center justify-center w-10 h-10 mb-2 border-2 rounded-full"
 							class:border-blue-600={currentStep >= index}
 							class:bg-blue-600={currentStep > index}
 							class:border-gray-300={currentStep < index}
+							on:click={() => {
+								currentStep = index;
+							}}
 						>
 							{#if currentStep > index}
 								<Check class="text-white" size={18} />
 							{:else}
 								<span>{index + 1}</span>
 							{/if}
-						</div>
+						</button>
 						<span class="text-sm">{step.name}</span>
 					</div>
 
@@ -156,8 +160,6 @@
 		<!-- 단계별 폼 내용 -->
 		<div class="min-h-[400px]">
 			{#if currentStep === 0}
-				<h2 class="mb-6 text-xl font-bold text-gray-800">기본 정보</h2>
-
 				<!-- 성별 선택 -->
 				<div class="mb-6">
 					<h3 class="mb-3 text-lg font-semibold text-gray-700">성별</h3>
@@ -169,6 +171,24 @@
 									? 'bg-blue-500 text-white border-blue-500'
 									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
 								on:click={() => (selectedGender = option.value)}
+							>
+								{option.label}
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<!-- 나이 -->
+				<div class="mb-6">
+					<h3 class="mb-3 text-lg font-semibold text-gray-700">나이</h3>
+					<div class="flex flex-wrap gap-2">
+						{#each promptOptions.ageOptions as option}
+							<button
+								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedAge ===
+								option.value
+									? 'bg-blue-500 text-white border-blue-500'
+									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
+								on:click={() => (selectedAge = option.value)}
 							>
 								{option.label}
 							</button>
@@ -196,17 +216,17 @@
 					</div>
 				</div>
 
-				<!-- 나이 -->
+				<!-- 직업 -->
 				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">나이</h3>
+					<h3 class="mb-3 text-lg font-semibold text-gray-700">직업</h3>
 					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.ageOptions as option}
+						{#each promptOptions.classOptions as option}
 							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedAge ===
+								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedClass ===
 								option.value
 									? 'bg-blue-500 text-white border-blue-500'
 									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedAge = option.value)}
+								on:click={() => (selectedClass = option.value)}
 							>
 								{option.label}
 							</button>
@@ -214,8 +234,6 @@
 					</div>
 				</div>
 			{:else if currentStep === 1}
-				<h2 class="mb-6 text-xl font-bold text-gray-800">외형</h2>
-
 				<!-- 체형 -->
 				<div class="mb-6">
 					<h3 class="mb-3 text-lg font-semibold text-gray-700">체형</h3>
@@ -252,26 +270,93 @@
 					</div>
 				</div>
 
-				<!-- 직업 -->
 				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">직업</h3>
+					<h3 class="mb-3 text-lg font-semibold text-gray-700">머리색</h3>
 					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.classOptions as option}
+						{#each promptOptions.hairColorOptions as option}
 							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedClass ===
+								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedHairColor ===
 								option.value
 									? 'bg-blue-500 text-white border-blue-500'
 									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedClass = option.value)}
+								on:click={() => (selectedHairColor = option.value)}
 							>
 								{option.label}
 							</button>
 						{/each}
 					</div>
 				</div>
-			{:else if currentStep === 2}
-				<h2 class="mb-6 text-xl font-bold text-gray-800">성장 배경</h2>
 
+				<div class="flex justify-between">
+					<div class="mb-6">
+						<h3 class="mb-3 text-lg font-semibold text-gray-700">머리길이</h3>
+						<div class="flex flex-wrap gap-2">
+							{#each promptOptions.hairLengthOptions as option}
+								<button
+									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedHairLength ===
+									option.value
+										? 'bg-blue-500 text-white border-blue-500'
+										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
+									on:click={() => (selectedHairLength = option.value)}
+								>
+									{option.label}
+								</button>
+							{/each}
+						</div>
+					</div>
+					<div class="mb-6">
+						<h3 class="mb-3 text-lg font-semibold text-gray-700">머릿결</h3>
+						<div class="flex flex-wrap gap-2">
+							{#each promptOptions.hairCurlOptions as option}
+								<button
+									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedHairCurl ===
+									option.value
+										? 'bg-blue-500 text-white border-blue-500'
+										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
+									on:click={() => (selectedHairCurl = option.value)}
+								>
+									{option.label}
+								</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<div class="flex justify-between">
+					<div class="mb-6">
+						<h3 class="mb-3 text-lg font-semibold text-gray-700">눈동자 색</h3>
+						<div class="flex flex-wrap gap-2">
+							{#each promptOptions.eyeColorOptions as option}
+								<button
+									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedEyeColor ===
+									option.value
+										? 'bg-blue-500 text-white border-blue-500'
+										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
+									on:click={() => (selectedEyeColor = option.value)}
+								>
+									{option.label}
+								</button>
+							{/each}
+						</div>
+					</div>
+					<div class="mb-6">
+						<h3 class="mb-3 text-lg font-semibold text-gray-700">눈 크기</h3>
+						<div class="flex flex-wrap gap-2">
+							{#each promptOptions.eyeSizeOptions as option}
+								<button
+									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedEyeSize ===
+									option.value
+										? 'bg-blue-500 text-white border-blue-500'
+										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
+									on:click={() => (selectedEyeSize = option.value)}
+								>
+									{option.label}
+								</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+			{:else if currentStep === 2}
 				<!-- 가족 -->
 				<div class="mb-6">
 					<h3 class="mb-3 text-lg font-semibold text-gray-700">가족</h3>
@@ -344,8 +429,6 @@
 					</div>
 				</div>
 			{:else if currentStep === 3}
-				<h2 class="mb-6 text-xl font-bold text-gray-800">선택 항목 확인</h2>
-
 				<div class="p-4 space-y-4 rounded-lg bg-gray-50">
 					<!-- 모든 선택 항목 요약 표시 -->
 					<div class="grid grid-cols-2 gap-4">
@@ -360,6 +443,13 @@
 						</div>
 
 						<div class="flex flex-col">
+							<span class="text-sm text-gray-500">나이</span>
+							<span class="font-medium"
+								>{getOptionLabel(promptOptions.ageOptions, selectedAge)}</span
+							>
+						</div>
+
+						<div class="flex flex-col">
 							<span class="text-sm text-gray-500">테마 및 세계관</span>
 							<span class="font-medium"
 								>{getOptionLabel(
@@ -370,9 +460,12 @@
 						</div>
 
 						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">나이</span>
+							<span class="text-sm text-gray-500">직업</span>
 							<span class="font-medium"
-								>{getOptionLabel(promptOptions.ageOptions, selectedAge)}</span
+								>{getOptionLabel(
+									promptOptions.classOptions,
+									selectedClass,
+								)}</span
 							>
 						</div>
 
@@ -397,11 +490,51 @@
 						</div>
 
 						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">직업</span>
+							<span class="text-sm text-gray-500">머리색</span>
 							<span class="font-medium"
 								>{getOptionLabel(
-									promptOptions.classOptions,
-									selectedClass,
+									promptOptions.hairColorOptions,
+									selectedHairColor,
+								)}</span
+							>
+						</div>
+
+						<div class="flex flex-col">
+							<span class="text-sm text-gray-500">머리길이</span>
+							<span class="font-medium"
+								>{getOptionLabel(
+									promptOptions.hairLengthOptions,
+									selectedHairLength,
+								)}</span
+							>
+						</div>
+
+						<div class="flex flex-col">
+							<span class="text-sm text-gray-500">머릿결</span>
+							<span class="font-medium"
+								>{getOptionLabel(
+									promptOptions.hairCurlOptions,
+									selectedHairCurl,
+								)}</span
+							>
+						</div>
+
+						<div class="flex flex-col">
+							<span class="text-sm text-gray-500">눈동자색</span>
+							<span class="font-medium"
+								>{getOptionLabel(
+									promptOptions.eyeColorOptions,
+									selectedEyeColor,
+								)}</span
+							>
+						</div>
+
+						<div class="flex flex-col">
+							<span class="text-sm text-gray-500">눈크기</span>
+							<span class="font-medium"
+								>{getOptionLabel(
+									promptOptions.eyeSizeOptions,
+									selectedEyeSize,
 								)}</span
 							>
 						</div>
@@ -454,7 +587,10 @@
 		<div class="flex justify-between pt-6 mt-6 border-t border-gray-200">
 			<button
 				on:click={prevStep}
-				class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50"
+				class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50 {currentStep ===
+				0
+					? 'opacity-0'
+					: 'opacity-100'}"
 				disabled={currentStep === 0}
 			>
 				<ArrowLeft size={16} class="mr-1" />
@@ -485,9 +621,7 @@
 		<div class="w-full p-4 text-center bg-white shadow-lg rounded-xl">
 			<!-- <h2 class="mb-2 text-xl font-bold text-gray-800">캐릭터 결과</h2> -->
 
-			<div
-				class="flex flex-col items-center justify-center w-full aspect-square"
-			>
+			<div class="flex flex-col items-center justify-center w-full h-full">
 				{#if isLoading}
 					<div class="text-center">
 						<p class="mb-3 text-gray-700">캐릭터를 생성하는 중입니다...</p>
@@ -500,7 +634,7 @@
 						class="flex items-center justify-center w-full max-w-md bg-gray-100 rounded-lg aspect-square"
 					>
 						<div class="flex flex-col items-center text-gray-400">
-							<UserRoundPlus size={100} />
+							<UserRound size={100} />
 						</div>
 					</div>
 				{:else if errorMessage}

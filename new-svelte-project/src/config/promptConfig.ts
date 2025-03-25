@@ -13,21 +13,31 @@ export interface PromptOptions {
 	bodyTypeOptions: OptionItem[];
 	clothingOptions: OptionItem[];
 	classOptions: OptionItem[];
+	//
 	personalityOptions: OptionItem[];
+	//
+	hairColorOptions: OptionItem[];
+	hairCurlOptions: OptionItem[];
+	hairLengthOptions: OptionItem[];
+	//
+	eyeColorOptions: OptionItem[];
+	eyeSizeOptions: OptionItem[];
 }
 
 export const promptOptions: PromptOptions = {
 	genderOptions: [
-		{ label: "남성", value: "boy" },
-		{ label: "여성", value: "girl" },
+		{ label: "남성", value: "male" },
+		{ label: "여성", value: "female" },
+		{ label: "중성적인", value: "androgynous" },
 	],
 
 	themeOptions: [
 		{ label: "중세 판타지", value: "medieval fantasy" },
-		{ label: "동양", value: "eastern" },
-		{ label: "미래", value: "futuristic" },
+		{ label: "사이버펑크", value: "cyberpunk" },
+		{ label: "스팀펑크", value: "steampunk" },
 		{ label: "신화", value: "mythological" },
-		{ label: "현대", value: "modern" },
+		{ label: "현대 밀리터리", value: "modern military" },
+		{ label: "하이틴 스타일", value: "high school " },
 	],
 
 	familyOptions: [
@@ -48,22 +58,25 @@ export const promptOptions: PromptOptions = {
 	],
 
 	ageOptions: [
-		{ label: "청년 (20~40)", value: "young adult (20-40)" },
-		{ label: "중년 (40~60)", value: "middle-aged (40-60)" },
-		{ label: "노년 (60~100)", value: "elderly (60-100)" },
+		{ label: "청년 (20~40)", value: "young" },
+		{ label: "중년 (40~60)", value: "middle-aged" },
+		{ label: "노년 (60~100)", value: "old" },
 	],
 
 	bodyTypeOptions: [
+		{ label: "날씬형", value: "slim" },
+		{ label: "비만형", value: "chubby" },
 		{ label: "근육형", value: "muscular" },
-		{ label: "날씬", value: "slim" },
-		{ label: "비만", value: "overweight" },
-		{ label: "왜소", value: "petite" },
+		{ label: "왜소형", value: "petite" },
 	],
 
 	clothingOptions: [
-		{ label: "노출 X", value: "modest clothing" },
-		{ label: "부분 노출", value: "partially revealing clothing" },
-		{ label: "과감한 노출", value: "revealing clothing" },
+		{ label: "캐주얼 복장", value: "casual wear" },
+		{ label: "왕족 갑옷", value: "royal armor" },
+		{ label: "닌자 복장", value: "ninja outfit" },
+		{ label: "정장", value: "business suit" },
+		{ label: "아이돌 무대 의상", value: "idol stage outfit " },
+		{ label: "고딕 드레스", value: "gothic dress" },
 	],
 
 	classOptions: [
@@ -75,22 +88,68 @@ export const promptOptions: PromptOptions = {
 	],
 
 	personalityOptions: [
-		{ label: "ENFP", value: "ENFP" },
-		{ label: "ISTJ", value: "ISTJ" },
-		{ label: "ESTJ", value: "ESTJ" },
-		{ label: "INFP", value: "INFP" },
+		{ label: "외향적", value: "extroverted" },
+		{ label: "내향적", value: "introverted" },
+		{ label: "감성적", value: "emotional" },
+		{ label: "이성적", value: "rational" },
+	],
+
+	hairColorOptions: [
+		{ label: "검정", value: "black" },
+		{ label: "갈색", value: "brown" },
+		{ label: "금발", value: "blonde" },
+		{ label: "빨간색", value: "red" },
+		{ label: "하얀색", value: "white" },
+		{ label: "은색", value: "silver" },
+		{ label: "분홍색", value: "pink" },
+		{ label: "파란색", value: "blue" },
+		{ label: "초록색", value: "green" },
+		{ label: "보라색", value: "purple" },
+	],
+
+	hairLengthOptions: [
+		{ label: "짧은", value: "short" },
+		{ label: "중간", value: "medium" },
+		{ label: "긴", value: "long" },
+	],
+
+	hairCurlOptions: [
+		{ label: "직모", value: "straight" },
+		{ label: "반곱슬", value: "wavy" },
+		{ label: "곱슬", value: "curly" },
+	],
+
+	eyeColorOptions: [
+		{ label: "검정", value: "black" },
+		{ label: "갈색", value: "brown" },
+		{ label: "파란색", value: "blue" },
+		{ label: "초록색", value: "green" },
+		{ label: "빨간색", value: "red" },
+		{ label: "금색", value: "golden" },
+		{ label: "은색", value: "silver" },
+		{ label: "보라색", value: "purple" },
+	],
+
+	eyeSizeOptions: [
+		{ label: "큰", value: "large" },
+		{ label: "작은", value: "small" },
 	],
 };
 
 export const defaultSelections = {
-	selectedGender: "boy",
+	selectedGender: "male",
 	selectedTheme: "medieval fantasy",
 	selectedFamily: "has family",
-	selectedFamilyHistory: "promising family",
+	selectedFamilyHistory: "new family",
 	selectedRegion: "urban",
-	selectedAge: "young adult (20-40)",
+	selectedAge: "young",
 	selectedBodyType: "slim",
-	selectedClothing: "modest clothing",
-	selectedClass: "knight",
-	selectedPersonality: "ENFP",
+	selectedClothing: "casual wear",
+	selectedClass: "warrior",
+	selectedPersonality: "extroverted",
+	selectedHairColor: "black",
+	selectedHairLength: "short",
+	selectedHairCurl: "straight",
+	selectedEyeColor: "black",
+	selectedEyeSize: "large",
 };
