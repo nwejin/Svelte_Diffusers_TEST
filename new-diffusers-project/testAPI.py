@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import torch
 from diffusers import StableDiffusionPipeline
-# FluxPipeline StableDiffusionPipeline
 import base64
 from io import BytesIO
 
@@ -21,24 +20,33 @@ app.add_middleware(
 
 model_id = "runwayml/stable-diffusion-v1-5" 
 
-# Linaqruf/anything-v3.0
-# runwayml/stable-diffusion-v1-5
-
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+# CUDA(NVIDIA GPU) 사용 가능 여부 확인
+device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"using device: {device}")
+
+# GPU 정보 출력
+if device == "cuda":
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"CUDA Version: {torch.version.cuda}")
+
+# 데이터 타입 설정 (CUDA에서는 half precision 사용 가능)
+dtype = torch.float16 if device == "cuda" else torch.float32
 
 # Stable Diffusion의 전체 과정을 하나의 파이프라인으로 처리
 pipe = StableDiffusionPipeline.from_pretrained(
     model_id,
-     # MPS에서는 float32가 더 안정적
-    torch_dtype=torch.float32, 
+    torch_dtype=dtype,
     safety_checker=None
 )
 
 pipe = pipe.to(device)
-#모델 성능 최적화
+# 모델 성능 최적화
 pipe.enable_attention_slicing()
 pipe.enable_vae_tiling()
+
+# 메모리 최적화 (GPU 메모리가 제한적인 경우)
+if device == "cuda" and torch.cuda.get_device_properties(0).total_memory < 8 * 1024 * 1024 * 1024:  # 8GB 미만
+    pipe.enable_sequential_cpu_offload()
 
 class TextToImageRequest(BaseModel):
     prompt: str
@@ -54,15 +62,16 @@ class TextToImageRequest(BaseModel):
 @app.post("/sdapi/v1/txt2img")
 async def generate_image(request: TextToImageRequest):
     try:
-      
+        # 이미지 생성
         image = pipe(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
             width=request.width,
             height=request.height,
             num_inference_steps=request.steps, 
-            guidance_scale=request.cfg_scale, 
-    
+            guidance_scale=request.cfg_scale,
+            # CUDA 디바이스에서는 CUDA 생성기 사용
+            generator=torch.Generator(device == "cuda").manual_seed(0) if device == "cuda" else torch.Generator("cpu").manual_seed(0)
         ).images[0]
 
         # base64 인코딩된 문자열로 변환
@@ -79,7 +88,12 @@ async def generate_image(request: TextToImageRequest):
 # 서버 상태 확인
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "model": model_id, "device": device}
+    return {
+        "status": "healthy", 
+        "model": model_id, 
+        "device": device,
+        "gpu_info": torch.cuda.get_device_name(0) if device == "cuda" else "N/A"
+    }
 
 if __name__ == "__main__":
     import uvicorn
