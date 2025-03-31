@@ -36,7 +36,6 @@ dtype = torch.float16 if device == "cuda" else torch.float32
 pipe = StableDiffusionPipeline.from_pretrained(
     model_id,
     torch_dtype=dtype,
-    safety_checker=None
 )
 
 pipe = pipe.to(device)
@@ -71,7 +70,7 @@ async def generate_image(request: TextToImageRequest):
             num_inference_steps=request.steps, 
             guidance_scale=request.cfg_scale,
             # CUDA 디바이스에서는 CUDA 생성기 사용
-            generator=torch.Generator(device == "cuda").manual_seed(0) if device == "cuda" else torch.Generator("cpu").manual_seed(0)
+            generator = torch.Generator("cuda" if device == "cuda" else "cpu").manual_seed(0)
         ).images[0]
 
         # base64 인코딩된 문자열로 변환

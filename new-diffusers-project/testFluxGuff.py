@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import torch
-from diffusers import FluxTransformer2DModel, FluxPipeline
+from diffusers import FluxTransformer2DModel, FluxPipeline, GGUFQuantizationConfig
 from transformers import T5EncoderModel, CLIPTextModel
 from optimum.quanto import freeze, qfloat8, quantize
 
@@ -21,13 +21,13 @@ logging.basicConfig(level=logging.ERROR)
 app = FastAPI()
 load_dotenv()
 
-hf_token = os.getenv("HUGGINGFACE_TOKEN")
+# hf_token = os.getenv("HUGGINGFACE_TOKEN")
 
-if hf_token:
-    login(token=hf_token)
-    print(" 로그인 성공!")
-else:
-    print("로그인 에러")
+# if hf_token:
+#     login(token=hf_token)
+#     print(" 로그인 성공!")
+# else:
+#     print("로그인 에러")
 
 # CORS 설정
 app.add_middleware(
@@ -44,11 +44,14 @@ model_repo = "black-forest-labs/FLUX.1-schnell"
 # black-forest-labs/FLUX.1-dev
 # Comfy-Org/flux1-schnell
 
+guff_path = "https://huggingface.co/city96/FLUX.1-schnell-gguf/blob/main/flux1-schnell-Q4_0.gguf"
+
+
+
 local_model = "C:/models/flux/flux1-schnell-fp8.safetensors"
 
 # C:/models/flux/flux1-schnell-fp8.safetensors
 # C:/models/flux/flux1-schnell-Q4_0.gguf
-
 
 
 # CUDA(NVIDIA GPU) 사용 가능 여부 확인
@@ -60,87 +63,29 @@ if device == "cuda":
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"CUDA Version: {torch.version.cuda}")
 
-dtype = torch.float16 if device == "cuda" else torch.float32
-
-
 
 # 단일 파일에서 transformer 모델 로드
 transformer = FluxTransformer2DModel.from_single_file(
-    local_model,
-    torch_dtype=dtype
+    guff_path,
+    quantization_config =GGUFQuantizationConfig(compute_dtype=torch.bfloat16),
+    torch_dtype=torch.bfloat16
     )
-# quantize(transformer, weights=qfloat8)
-freeze(transformer)
 
-text_encoder_2 = T5EncoderModel.from_pretrained(
-    model_repo, 
-    subfolder="text_encoder_2",
-    torch_dtype=dtype
-    )
-freeze(text_encoder_2)
-
-
-# if transformer is None:
-#     raise ValueError("transformer model failed to load")
-
-
-# # GPU 메모리가 충분하다면 FP8 양자화 사용
-# if device == "cuda" and torch.cuda.get_device_properties(0).total_memory > 8 * 1024 * 1024 * 1024:
-#     try:
-#         print("Applying FP8 quantization...")
-#         quantize(transformer, weights=qfloat8)
-#         freeze(transformer)
-#     except Exception as e:
-#         print(f"FP8 quantization failed: {e}. Continuing without quantization.")
-
-# 기본 모델에서 text_encoder_2 로드
-# text_encoder_2 = T5EncoderModel.from_pretrained(
-#     "Comfy-Org/flux1-schnell", 
-#     subfolder="text_encoder_2", 
-#     torch_dtype=dtype, 
-#     token=hf_token
-# )
-
-# if transformer is None:
-#     raise ValueError("Transformer model failed to load.")
-
-# if text_encoder_2 is None:
-#     raise ValueError("Text Encoder 2 model failed to load.")
 
 # 파이프라인 생성
 pipe = FluxPipeline.from_pretrained(
     model_repo, 
-    transformer=None,
-    text_encoder_2=None,
-    torch_dtype=dtype,
-    token=hf_token
+    transformer=transformer,
+    torch_dtype=torch.bfloat16,
     )
 
-pipe = pipe.to(device)
-
-pipe.transformer = transformer
-pipe.text_encoder_2 = text_encoder_2
-
 pipe.enable_model_cpu_offload()
-
-# # 디바이스 설정
-# if device == "cuda":
-#     # 메모리가 적은 GPU에서는 모델 CPU 오프로딩 사용
-#     if torch.cuda.get_device_properties(0).total_memory < 8 * 1024 * 1024 * 1024:  # 8GB 미만
-#         pipe.enable_model_cpu_offload()
-#     else:
-#         pipe = pipe.to(device)
-# else:
-#     pipe = pipe.to(device)
-
-# # 메모리 최적화 (GPU 메모리가 제한적인 경우)
-# pipe.enable_attention_slicing()  # 주의: Flux에서 지원하지 않는 경우 이 줄을 제거하세요
 
 class TextToImageRequest(BaseModel):
     prompt: str
     negative_prompt: str = ""
-    width: int = 512
-    height: int = 512
+    width: int = 768
+    height: int = 1024
     num_inference_steps: int = 4  
     guidance_scale: float = 0.0
 
@@ -153,8 +98,8 @@ async def generate_image(request: TextToImageRequest):
         image = pipe(
             request.prompt,
             # negative_prompt=request.negative_prompt,
-            width=512,
-            height=512,
+            width=768,
+            height=1024,
             num_inference_steps=4, 
             guidance_scale=0.0,
             output_type="pil",
