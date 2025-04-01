@@ -2,6 +2,7 @@
 	import DiffuserVersion from "./lib/DiffuserAPITest.svelte";
 	import CompyUIVersion from "./lib/CompyUIAPITest.svelte";
 	import CompyUIDirect from "./lib/CompyUIDirect.svelte";
+	import CompyUIExample from "./lib/CompyUIExample.svelte";
 	import Home from "./lib/Home.svelte";
 	import { Router, Link, Route } from "svelte-routing";
 	import { writable } from "svelte/store";
@@ -77,6 +78,18 @@
 				>
 					CompyUI (direct)
 				</Link>
+
+				<Link
+					to="/compyUI(ver3)"
+					class="px-6 py-2 text-lg rounded-lg font-bold {isActive(
+						'/compyUI(ver3)',
+					)
+						? 'text-white bg-blue-500 border border-blue-500'
+						: 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'}"
+					on:click={() => handleLinkClick("/compyUI(ver3)")}
+				>
+					CompyUI (예시코드)
+				</Link>
 			</nav>
 
 			<div>
@@ -91,6 +104,9 @@
 				</Route>
 				<Route path="/compyUI(ver2)">
 					<CompyUIDirect />
+				</Route>
+				<Route path="/compyUI(ver3)">
+					<CompyUIExample />
 				</Route>
 			</div>
 		</div>

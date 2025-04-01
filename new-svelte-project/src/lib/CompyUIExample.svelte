@@ -301,7 +301,7 @@
 		}
 	}
 
-	// 프롬프트 생성 anime
+	// 프롬프트 생성
 	const generatePrompt = (): string => {
 		return `(masterpiece, best quality, high detail, anime, grey background, from head to toe), 
 		a ${selectedAge} ${selectedBodyType} ${selectedGender} character in ${selectedTheme} setting, 
@@ -309,23 +309,11 @@
 		${selectedEyeColor} eyes, ${selectedEyeSize} eyes, detailed facial features, ultra HD`;
 	};
 
-	// ComfyUI로 이미지 생성 (웹소켓 사용)
 	async function generateImage() {
 		isLoading = true;
 		generatedImage = null;
 		errorMessage = null;
 		progressPercent = 0;
-
-		// 웹소켓 연결 확인
-		connectWebSocket();
-
-		// 연결이 안 되어 있으면 오류 표시
-		if (!isConnected && !websocket) {
-			errorMessage =
-				"ComfyUI 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.";
-			isLoading = false;
-			return;
-		}
 
 		try {
 			const positivePrompt = generatePrompt();
@@ -420,7 +408,8 @@
 
 			console.log("이미지 생성 프롬프트 전송:", promptData);
 
-			const response = await fetch("http://localhost:8188/prompt", {
+			// ComfyUI API 직접 호출 대신 FastAPI 서버 호출
+			const response = await fetch("http://localhost:8000/api/generate-image", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -435,7 +424,7 @@
 			}
 
 			const data = await response.json();
-			console.log("ComfyUI 응답:", data);
+			console.log("API 응답:", data);
 
 			const promptId = data.prompt_id;
 			console.log("프롬프트ID:", promptId);
@@ -443,14 +432,78 @@
 			// 전역 변수에 promptId 저장
 			promptCache.lastPromptId = promptId;
 
-			// 웹소켓을 통해 알림을 받으므로 여기서는 아무것도 하지 않음
-			// 대신 8초 후에도 이미지가 생성되지 않으면 직접 확인
-			setTimeout(() => {
-				if (isLoading && promptId) {
-					console.log("8초 경과, 히스토리 확인 시작");
-					pollHistoryData(promptId);
+			// 주기적으로 히스토리 확인
+			const checkInterval = setInterval(async () => {
+				if (!isLoading) {
+					clearInterval(checkInterval);
+					return;
 				}
-			}, 8000);
+
+				try {
+					// FastAPI 서버에서 히스토리 가져오기
+					const historyResponse = await fetch(
+						`http://localhost:8000/api/history/${promptId}`,
+						{ cache: "no-store" },
+					);
+
+					if (!historyResponse.ok) {
+						throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
+					}
+
+					const historyData = await historyResponse.json();
+
+					// 이미지 정보 찾기
+					if (
+						historyData &&
+						historyData[promptId] &&
+						historyData[promptId].outputs
+					) {
+						for (const nodeId in historyData[promptId].outputs) {
+							const nodeOutput = historyData[promptId].outputs[nodeId];
+							if (
+								nodeOutput &&
+								nodeOutput.images &&
+								nodeOutput.images.length > 0
+							) {
+								const image = nodeOutput.images[0];
+								const imageName = image.filename;
+
+								// FastAPI 이미지 URL로 변경
+								const imageUrl = `http://localhost:8000/api/image?filename=${encodeURIComponent(imageName)}`;
+
+								console.log("이미지 생성 완료:", imageUrl);
+								generatedImage = imageUrl;
+
+								// 시드 값 찾기
+								try {
+									if (
+										historyData[promptId].prompt &&
+										historyData[promptId].prompt["3"]
+									) {
+										seedValue = historyData[promptId].prompt["3"].inputs.seed;
+										console.log("시드 값:", seedValue);
+									}
+								} catch (error) {
+									console.error("시드 값 찾기 오류:", error);
+								}
+
+								// 로딩 상태 종료
+								isLoading = false;
+								progressPercent = 0;
+								clearInterval(checkInterval);
+								return;
+							}
+						}
+					}
+
+					// 이미지를 아직 찾지 못함, 계속 확인
+					console.log("이미지 생성 중...");
+				} catch (error) {
+					console.error("히스토리 확인 오류:", error);
+					isLoading = false;
+					clearInterval(checkInterval);
+				}
+			}, 1000); // 1초마다 확인
 		} catch (error) {
 			console.error("이미지 생성 중 오류:", error);
 			errorMessage =
@@ -460,32 +513,15 @@
 			isLoading = false;
 		}
 	}
-
-	// 수동으로 서버 연결 시도하는 함수
-	function reconnectServer() {
-		connectWebSocket();
-	}
-
-	onMount(() => {
-		// 컴포넌트 마운트 시 웹소켓 연결
-		connectWebSocket();
-
-		// 컴포넌트 언마운트 시 웹소켓 연결 종료
-		return () => {
-			if (websocket) {
-				websocket.close();
-				websocket = null;
-				isConnected = false;
-			}
-		};
-	});
 </script>
 
-<h2 class="mb-4 text-3xl font-semibold text-gray-600">CompyUI Direct</h2>
+<h2 class="mb-4 text-3xl font-semibold text-gray-600">
+	CompyUI 예시코드를 활용한 이미지 생성
+</h2>
 <div class="grid w-full grid-cols-2 gap-8 p-4">
 	<!-- 왼쪽 컬럼: 단계별 입력 폼 -->
 	<div class="p-6 bg-white shadow-lg rounded-xl">
-		<div class="flex items-center justify-end mb-2">
+		<!-- <div class="flex items-center justify-end mb-2">
 			<div
 				class="flex items-center gap-2 px-3 py-1 text-sm rounded-full {isConnected
 					? 'bg-green-100 text-green-700'
@@ -506,7 +542,7 @@
 					</button>
 				{/if}
 			</div>
-		</div>
+		</div> -->
 		<!-- 스텝 인디케이터 -->
 		<div class="mb-6">
 			<div class="flex justify-between mb-4">
@@ -617,6 +653,30 @@
 								{option.label}
 							</button>
 						{/each}
+					</div>
+				</div>
+				<!-- 랜덤 -->
+				<div class="mb-6">
+					<h3 class="mb-3 text-lg font-semibold text-gray-700">
+						사용자 지정 프롬프트
+					</h3>
+					<div class="flex flex-wrap gap-2">
+						<textarea
+							name="randomPrompt"
+							id="randomPrompt"
+							class="w-full px-4 py-2 text-sm text-gray-700 transition-colors duration-200 bg-white border border-gray-300 rounded-lg resize-none hover:bg-gray-100"
+						></textarea>
+						<!-- {#each promptOptions.classOptions as option}
+							<button
+								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedClass ===
+								option.value
+									? 'bg-blue-500 text-white border-blue-500'
+									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
+								on:click={() => (selectedClass = option.value)}
+							>
+								{option.label}
+							</button>
+						{/each} -->
 					</div>
 				</div>
 			{:else if currentStep === 1}
@@ -1044,14 +1104,14 @@
 				{:else if errorMessage}
 					<div class="w-full p-4 text-red-700 rounded-lg bg-red-50">
 						<p>오류 발생: {errorMessage}</p>
-						{#if !isConnected}
+						<!-- {#if !isConnected}
 							<button
 								on:click={reconnectServer}
 								class="px-4 py-2 mt-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
 							>
 								서버 연결 시도
 							</button>
-						{/if}
+						{/if} -->
 					</div>
 				{:else if generatedImage}
 					<div class="text-center">
