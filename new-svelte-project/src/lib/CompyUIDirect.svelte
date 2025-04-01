@@ -1,10 +1,24 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { UserRound, ArrowRight, ArrowLeft, Check } from "lucide-svelte";
+	import {
+		UserRound,
+		ArrowRight,
+		ArrowLeft,
+		Check,
+		Wifi,
+		WifiOff,
+	} from "lucide-svelte";
 	import { promptConfig } from "../config";
 
 	const { promptOptions, defaultSelections } = promptConfig;
 
+	interface PromptCache {
+		lastPromptId?: string;
+	}
+
+	const promptCache: PromptCache = {};
+
+	// 프롬프트 옵션값 관련
 	// 선택 옵션 (값은 영어로 저장)
 	let selectedGender = defaultSelections.selectedGender;
 	let selectedAge = defaultSelections.selectedAge;
@@ -31,8 +45,8 @@
 	let generatedImage: string | null = null;
 	let errorMessage: string | null = null;
 	let currentStep = 0;
-
 	let seedValue: number | null = null;
+	let progressPercent = 0; // 진행률 표시용
 
 	const steps = [
 		{ name: "기본 정보" },
@@ -63,6 +77,267 @@
 		}
 	};
 
+	// ComfyUI 웹소켓
+	let websocket: WebSocket | null = null;
+	let isConnected = false;
+	let connectionStatus = "연결 시도 중..."; // 연결 상태 메시지
+
+	const connectWebSocket = () => {
+		if (isConnected && websocket) return;
+
+		try {
+			connectionStatus = "연결 시도 중...";
+			websocket = new WebSocket("ws://localhost:8188/ws");
+
+			websocket.onopen = () => {
+				console.log("웹소켓 연결 성공");
+				isConnected = true;
+				connectionStatus = "연결됨";
+			};
+
+			websocket.onclose = () => {
+				console.log("웹소켓 연결 종료");
+				isConnected = false;
+				connectionStatus = "연결 끊김";
+				websocket = null;
+
+				// 5초 후 재연결 시도
+				setTimeout(connectWebSocket, 5000);
+			};
+
+			websocket.onerror = (error) => {
+				console.error("웹소켓 오류:", error);
+				isConnected = false;
+				connectionStatus = "연결 오류";
+				websocket = null;
+			};
+
+			websocket.onmessage = (event) => {
+				try {
+					const message = JSON.parse(event.data);
+					console.log("웹소켓 메시지:", message);
+
+					handleWebSocketMessage(message);
+				} catch (error) {
+					console.error("웹소켓 메시지 처리 오류:", error);
+				}
+			};
+		} catch (error) {
+			console.error("웹소켓 연결 시도 오류:", error);
+			connectionStatus = "연결 실패";
+			setTimeout(connectWebSocket, 5000);
+		}
+	};
+
+	const handleWebSocketMessage = (message: any) => {
+		console.log("웹소켓 메시지:", message);
+
+		// 실행 완료 메시지인 경우
+		if (message.type === "execution_complete") {
+			const promptId = message.data.prompt_id;
+			console.log(`워크플로우 실행 완료 (ID: ${promptId})`);
+
+			// 히스토리 데이터가 업데이트될 시간을 주기 위해 약간 지연 후 폴링 시작
+			setTimeout(() => {
+				pollHistoryData(promptId);
+			}, 1000);
+		}
+
+		// 실행 중인 메시지인 경우 (현재 진행 중인 노드 표시 용도)
+		if (message.type === "executing") {
+			const { node } = message.data;
+			console.log(`노드 실행 중: ${node}`);
+		}
+
+		// 진행 상황 업데이트 메시지인 경우
+		if (message.type === "progress") {
+			const { value, max } = message.data;
+			const percent = Math.round((value / max) * 100);
+			console.log(`진행 상태: ${value}/${max} (${percent}%)`);
+
+			// 진행률 업데이트
+			progressPercent = percent;
+
+			// 진행률이 100%에 도달하면 히스토리 데이터 확인 시작
+			if (percent === 100 && isLoading && promptCache.lastPromptId) {
+				console.log("진행률 100% 도달, 2초 후 히스토리 확인 시도");
+				setTimeout(() => {
+					if (isLoading && promptCache.lastPromptId) {
+						pollHistoryData(promptCache.lastPromptId);
+					}
+				}, 2000);
+			}
+		}
+
+		// 큐 상태 메시지인 경우
+		if (message.type === "status") {
+			console.log("큐 상태:", message.data);
+		}
+	};
+
+	// 이미지 생성 완료 후 히스토리 데이터 폴링 함수
+	async function pollHistoryData(promptId: string, maxAttempts = 10) {
+		let attempts = 0;
+
+		const checkHistory = async () => {
+			try {
+				console.log(`히스토리 데이터 확인 시도 ${attempts + 1}/${maxAttempts}`);
+
+				const historyResponse = await fetch(
+					`http://localhost:8188/history/${promptId}`,
+					{ cache: "no-store" }, // 캐시 사용 안 함
+				);
+
+				if (!historyResponse.ok) {
+					throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
+				}
+
+				const historyData = await historyResponse.json();
+				console.log("히스토리 데이터:", historyData);
+
+				// 히스토리 데이터가 비어있지 않고 outputs 속성이 있는지 확인
+				if (
+					historyData &&
+					Object.keys(historyData).length > 0 &&
+					historyData[promptId] &&
+					historyData[promptId].outputs
+				) {
+					// 이미지 정보 처리
+					for (const nodeId in historyData[promptId].outputs) {
+						const nodeOutput = historyData[promptId].outputs[nodeId];
+						if (
+							nodeOutput &&
+							nodeOutput.images &&
+							nodeOutput.images.length > 0
+						) {
+							const image = nodeOutput.images[0];
+							const imageName = image.filename;
+							const imageUrl = `http://localhost:8188/view?filename=${encodeURIComponent(imageName)}`;
+
+							console.log("이미지 URL 생성됨:", imageUrl);
+							generatedImage = imageUrl;
+
+							// 시드 값 찾기
+							try {
+								if (
+									historyData[promptId].prompt &&
+									historyData[promptId].prompt[2] &&
+									historyData[promptId].prompt[2]["3"]
+								) {
+									seedValue = historyData[promptId].prompt[2]["3"].inputs.seed;
+									console.log("시드 값:", seedValue);
+								}
+							} catch (error) {
+								console.error("시드 값 찾기 오류:", error);
+							}
+
+							// 로딩 상태 종료
+							isLoading = false;
+							progressPercent = 0;
+							return true;
+						}
+					}
+				}
+
+				// 아직 데이터가 없거나 이미지를 찾지 못한 경우
+				attempts++;
+				if (attempts < maxAttempts && isLoading) {
+					// 1초 후 다시 시도
+					setTimeout(checkHistory, 1000);
+				} else {
+					console.warn(
+						`히스토리 데이터 폴링 최대 시도 횟수(${maxAttempts}) 도달`,
+					);
+					if (isLoading) {
+						errorMessage =
+							"이미지 생성 정보를 가져오지 못했습니다. 다시 시도해 주세요.";
+						isLoading = false;
+					}
+				}
+			} catch (error) {
+				console.error("히스토리 데이터 폴링 오류:", error);
+				attempts++;
+				if (attempts < maxAttempts && isLoading) {
+					// 오류 발생 시 1.5초 후 다시 시도
+					setTimeout(checkHistory, 1500);
+				} else {
+					errorMessage =
+						error instanceof Error
+							? error.message
+							: "알 수 없는 오류가 발생했습니다.";
+					isLoading = false;
+				}
+			}
+		};
+
+		// 첫 번째 시도 시작
+		checkHistory();
+	}
+
+	// 생성된 이미지 정보 가져오기 (이전 메서드, 이제 pollHistoryData로 대체됨)
+	async function fetchGeneratedImage(promptId: string) {
+		try {
+			const historyResponse = await fetch(
+				`http://localhost:8188/history/${promptId}`,
+				{ cache: "no-store" },
+			);
+
+			if (!historyResponse.ok) {
+				throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
+			}
+
+			const historyData = await historyResponse.json();
+			console.log("히스토리 데이터:", historyData);
+
+			// 출력에서 이미지 찾기
+			if (historyData.outputs) {
+				for (const nodeId in historyData.outputs) {
+					const nodeOutput = historyData.outputs[nodeId];
+					if (nodeOutput && nodeOutput.images && nodeOutput.images.length > 0) {
+						const image = nodeOutput.images[0];
+						const imageName = image.filename;
+						const imageUrl = `http://localhost:8188/view?filename=${encodeURIComponent(imageName)}`;
+
+						console.log("이미지 생성 완료:", imageUrl);
+						generatedImage = imageUrl;
+
+						// 시드 값 찾기
+						try {
+							if (
+								historyData.prompt &&
+								historyData.prompt[2] &&
+								historyData.prompt[2]["3"]
+							) {
+								seedValue = historyData.prompt[2]["3"].inputs.seed;
+								console.log("시드 값:", seedValue);
+							}
+						} catch (error) {
+							console.error("시드 값 찾기 오류:", error);
+						}
+
+						// 로딩 상태 종료
+						isLoading = false;
+						progressPercent = 0;
+						return true;
+					}
+				}
+			}
+
+			// 이미지를 찾지 못한 경우
+			console.warn("이미지를 찾지 못했습니다:", historyData);
+			return false;
+		} catch (error) {
+			console.error("이미지 정보 가져오기 오류:", error);
+			errorMessage =
+				error instanceof Error
+					? error.message
+					: "이미지 정보를 가져오는데 실패했습니다.";
+			isLoading = false;
+			return false;
+		}
+	}
+
+	// 프롬프트 생성
 	const generatePrompt = (): string => {
 		return `(masterpiece, best quality, high detail, anime, grey background, from head to toe), 
 		a ${selectedAge} ${selectedBodyType} ${selectedGender} character in ${selectedTheme} setting, 
@@ -70,10 +345,33 @@
 		${selectedEyeColor} eyes, ${selectedEyeSize} eyes, detailed facial features, ultra HD`;
 	};
 
+	// ComfyUI로 이미지 생성 (웹소켓 사용)
 	async function generateImage() {
 		isLoading = true;
 		generatedImage = null;
 		errorMessage = null;
+		progressPercent = 0;
+
+		// 타임아웃 설정 (30초 후 자동 취소)
+		const timeoutId = setTimeout(() => {
+			if (isLoading) {
+				console.log("30초 타임아웃, 이미지 생성 취소");
+				isLoading = false;
+				errorMessage = "이미지 생성 시간이 초과되었습니다. 다시 시도해 주세요.";
+			}
+		}, 30000);
+
+		// 웹소켓 연결 확인
+		connectWebSocket();
+
+		// 연결이 안 되어 있으면 오류 표시
+		if (!isConnected && !websocket) {
+			errorMessage =
+				"ComfyUI 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.";
+			isLoading = false;
+			clearTimeout(timeoutId);
+			return;
+		}
 
 		try {
 			const positivePrompt = generatePrompt();
@@ -83,7 +381,7 @@
 			const workflow = {
 				"3": {
 					inputs: {
-						seed: Math.floor(Math.random() * 1000000000000000), // 랜덤 시드 생성
+						seed: Math.floor(Math.random() * 1000000000000000),
 						steps: 20,
 						cfg: 8,
 						sampler_name: "euler",
@@ -111,7 +409,7 @@
 				"5": {
 					inputs: {
 						width: 512,
-						height: 768, // 세로로 긴 이미지로 변경 (캐릭터 전신이 더 잘 나오도록)
+						height: 768,
 						batch_size: 1,
 					},
 					class_type: "EmptyLatentImage",
@@ -183,26 +481,79 @@
 			}
 
 			const data = await response.json();
-			console.log("compyUI 응답", data);
+			console.log("ComfyUI 응답:", data);
 
 			const promptId = data.prompt_id;
-			console.log(promptId);
+			console.log("프롬프트ID:", promptId);
+
+			// 전역 변수에 promptId 저장
+			promptCache.lastPromptId = promptId;
+
+			// 웹소켓을 통해 알림을 받으므로 여기서는 아무것도 하지 않음
+			// 대신 8초 후에도 이미지가 생성되지 않으면 직접 확인
+			setTimeout(() => {
+				if (isLoading && promptId) {
+					console.log("8초 경과, 히스토리 확인 시작");
+					pollHistoryData(promptId);
+				}
+			}, 8000);
 		} catch (error) {
 			console.error("이미지 생성 중 오류:", error);
 			errorMessage =
 				error instanceof Error
 					? error.message
 					: "알 수 없는 오류가 발생했습니다.";
-		} finally {
 			isLoading = false;
+			clearTimeout(timeoutId);
 		}
 	}
+
+	// 수동으로 서버 연결 시도하는 함수
+	function reconnectServer() {
+		connectWebSocket();
+	}
+
+	onMount(() => {
+		// 컴포넌트 마운트 시 웹소켓 연결
+		connectWebSocket();
+
+		// 컴포넌트 언마운트 시 웹소켓 연결 종료
+		return () => {
+			if (websocket) {
+				websocket.close();
+				websocket = null;
+				isConnected = false;
+			}
+		};
+	});
 </script>
 
 <h2 class="mb-4 text-3xl font-semibold text-gray-600">CompyUI Direct</h2>
 <div class="grid w-full grid-cols-2 gap-8 p-4">
 	<!-- 왼쪽 컬럼: 단계별 입력 폼 -->
 	<div class="p-6 bg-white shadow-lg rounded-xl">
+		<div class="flex items-center justify-end mb-2">
+			<div
+				class="flex items-center gap-2 px-3 py-1 text-sm rounded-full {isConnected
+					? 'bg-green-100 text-green-700'
+					: 'bg-red-100 text-red-700'}"
+			>
+				{#if isConnected}
+					<Wifi size={16} />
+				{:else}
+					<WifiOff size={16} />
+				{/if}
+				<span>{connectionStatus}</span>
+				{#if !isConnected}
+					<button
+						on:click={reconnectServer}
+						class="px-2 py-0.5 ml-2 text-xs text-white bg-blue-500 rounded hover:bg-blue-600"
+					>
+						연결
+					</button>
+				{/if}
+			</div>
+		</div>
 		<!-- 스텝 인디케이터 -->
 		<div class="mb-6">
 			<div class="flex justify-between mb-4">
@@ -707,9 +1058,27 @@
 				{#if isLoading}
 					<div class="text-center">
 						<p class="mb-3 text-gray-700">캐릭터를 생성하는 중입니다...</p>
-						<div
-							class="inline-block w-12 h-12 mt-2 border-4 border-blue-200 rounded-full border-l-blue-600 animate-spin"
-						></div>
+
+						<!-- 진행률 표시 -->
+						{#if progressPercent > 0}
+							<div class="w-full max-w-md mx-auto mb-4">
+								<div
+									class="relative h-4 overflow-hidden bg-gray-200 rounded-full"
+								>
+									<div
+										class="absolute top-0 left-0 h-full bg-blue-600 rounded-full"
+										style="width: {progressPercent}%"
+									></div>
+								</div>
+								<p class="mt-1 text-sm text-gray-600">
+									{progressPercent}% 완료
+								</p>
+							</div>
+						{:else}
+							<div
+								class="inline-block w-12 h-12 mt-2 border-4 border-blue-200 rounded-full border-l-blue-600 animate-spin"
+							></div>
+						{/if}
 					</div>
 				{:else if !generatedImage && !errorMessage}
 					<div
@@ -722,11 +1091,19 @@
 				{:else if errorMessage}
 					<div class="w-full p-4 text-red-700 rounded-lg bg-red-50">
 						<p>오류 발생: {errorMessage}</p>
+						{#if !isConnected}
+							<button
+								on:click={reconnectServer}
+								class="px-4 py-2 mt-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+							>
+								서버 연결 시도
+							</button>
+						{/if}
 					</div>
 				{:else if generatedImage}
 					<div class="text-center">
 						<img
-							src={generatedImage}
+							src="http://localhost:8188/view?filename=ComfyUI_00016_.png"
 							alt="생성된 캐릭터"
 							class="object-contain rounded-lg shadow-lg max-w-full max-h-[500px]"
 						/>
@@ -741,6 +1118,13 @@
 							>
 								저장하기
 							</a>
+							<button
+								on:click={generateImage}
+								disabled={isLoading || !isConnected}
+								class="inline-flex items-center px-6 py-3 ml-2 font-medium text-white transition duration-200 bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								다시 생성
+							</button>
 						</div>
 					</div>
 				{/if}
