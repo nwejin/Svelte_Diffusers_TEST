@@ -152,4 +152,5 @@ export const defaultSelections = {
 	selectedHairCurl: "straight",
 	selectedEyeColor: "black",
 	selectedEyeSize: "large",
+	randomPrompt: '',
 };

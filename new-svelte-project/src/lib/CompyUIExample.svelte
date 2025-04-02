@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import {
 		UserRound,
 		ArrowRight,
@@ -12,33 +12,10 @@
 
 	const { promptOptions, defaultSelections } = promptConfig;
 
-	interface PromptCache {
-		lastPromptId?: string;
-	}
-
-	const promptCache: PromptCache = {};
-
-	// 프롬프트 옵션값 관련
-	// 선택 옵션 (값은 영어로 저장)
 	let selectedGender = defaultSelections.selectedGender;
 	let selectedAge = defaultSelections.selectedAge;
 	let selectedTheme = defaultSelections.selectedTheme;
-	let selectedClass = defaultSelections.selectedClass;
-
-	// 외형
-	let selectedBodyType = defaultSelections.selectedBodyType;
-	let selectedClothing = defaultSelections.selectedClothing;
-	let selectedHairColor = defaultSelections.selectedHairColor;
-	let selectedHairLength = defaultSelections.selectedHairLength;
-	let selectedHairCurl = defaultSelections.selectedHairCurl;
-	let selectedEyeColor = defaultSelections.selectedEyeColor;
-	let selectedEyeSize = defaultSelections.selectedEyeSize;
-
-	// 배경
-	let selectedFamily = defaultSelections.selectedFamily;
-	let selectedFamilyHistory = defaultSelections.selectedFamilyHistory;
-	let selectedRegion = defaultSelections.selectedRegion;
-	let selectedPersonality = defaultSelections.selectedPersonality;
+	let randomPrompt = defaultSelections.randomPrompt;
 
 	// 생성 관련
 	let isLoading = false;
@@ -46,14 +23,19 @@
 	let errorMessage: string | null = null;
 	let currentStep = 0;
 	let seedValue: number | null = null;
-	let progressPercent = 0; // 진행률 표시용
 
-	const steps = [
-		{ name: "기본 정보" },
-		{ name: "외형" },
-		{ name: "배경" },
-		{ name: "확인" },
-	];
+	// 웹소켓 관련
+	let socket: WebSocket | null = null;
+	let isConnected = false;
+	let connectionStatus = "연결 대기 중";
+	let progressValue = 0;
+	let currentNode = "";
+	let currentPromptId: string | null = null;
+
+	// 이미지 처리 중 표시할 진행 상태
+	let processingStage = "";
+
+	const steps = [{ name: "선택" }, { name: "입력" }, { name: "확인" }];
 
 	interface Option {
 		value: string;
@@ -77,335 +59,234 @@
 		}
 	};
 
-	// ComfyUI 웹소켓
-	let websocket: WebSocket | null = null;
-	let isConnected = false;
-	let connectionStatus = "연결 시도 중..."; // 연결 상태 메시지
+	// 웹소켓 연결 설정
+	onMount(() => {
+		connectWebSocket();
+	});
 
-	const connectWebSocket = () => {
-		if (isConnected && websocket) return;
+	// 컴포넌트 종료 시 웹소켓 연결 종료
+	onDestroy(() => {
+		if (socket) {
+			socket.close();
+		}
+	});
 
-		try {
-			connectionStatus = "연결 시도 중...";
-			websocket = new WebSocket("ws://localhost:8188/ws");
+	// 웹소켓 연결 함수
+	function connectWebSocket() {
+		// 연결 상태 초기화
+		isConnected = false;
+		connectionStatus = "연결 시도 중...";
 
-			websocket.onopen = () => {
-				console.log("웹소켓 연결 성공");
-				isConnected = true;
-				connectionStatus = "연결";
-			};
+		// 클라이언트 ID 생성
+		const clientId = `svelte_${Date.now()}`;
 
-			websocket.onclose = () => {
-				console.log("웹소켓 연결 종료");
-				isConnected = false;
-				connectionStatus = "연결 끊김";
-				websocket = null;
+		// 웹소켓 연결
+		socket = new WebSocket(`ws://localhost:8000/ws/${clientId}`);
 
-				// 5초 후 재연결 시도
-				setTimeout(connectWebSocket, 5000);
-			};
+		// 연결 이벤트 핸들러
+		socket.onopen = () => {
+			console.log("웹소켓 연결됨");
+			isConnected = true;
+			connectionStatus = "연결";
+		};
 
-			websocket.onerror = (error) => {
-				console.error("웹소켓 오류:", error);
-				isConnected = false;
-				connectionStatus = "연결 오류";
-				websocket = null;
-			};
-
-			websocket.onmessage = (event) => {
+		// 메시지 이벤트 핸들러
+		socket.onmessage = (event) => {
+			// 바이너리 데이터 (이미지 미리보기)는 현재 사용하지 않음
+			if (typeof event.data === "string") {
+				// JSON 메시지 처리
 				try {
 					const message = JSON.parse(event.data);
-					console.log("웹소켓 메시지:", message);
-
 					handleWebSocketMessage(message);
 				} catch (error) {
-					console.error("웹소켓 메시지 처리 오류:", error);
-				}
-			};
-		} catch (error) {
-			console.error("웹소켓 연결 시도 오류:", error);
-			connectionStatus = "연결 실패";
-			setTimeout(connectWebSocket, 5000);
-		}
-	};
-
-	const handleWebSocketMessage = (message: any) => {
-		console.log("웹소켓 메시지:", message);
-
-		// 실행 완료 메시지인 경우
-		if (message.type === "execution_complete") {
-			const promptId = message.data.prompt_id;
-			console.log(`워크플로우 실행 완료 (ID: ${promptId})`);
-
-			// 히스토리 데이터가 업데이트될 시간을 주기 위해 약간 지연 후 폴링 시작
-		}
-
-		// 실행 중인 메시지인 경우 (현재 진행 중인 노드 표시 용도)
-		if (message.type === "executing") {
-			const { node } = message.data;
-			console.log(`노드 실행 중: ${node}`);
-		}
-
-		// 큐 상태 메시지인 경우
-		if (message.type === "status") {
-			console.log("큐 상태:", message.data);
-		}
-	};
-
-	// 이미지 생성 완료 후 히스토리 데이터 폴링 함수
-	async function pollHistoryData(promptId: string, maxAttempts = 10) {
-		let attempts = 0;
-
-		const checkHistory = async () => {
-			try {
-				console.log(`히스토리 데이터 확인 시도 ${attempts + 1}/${maxAttempts}`);
-
-				const historyResponse = await fetch(
-					`http://localhost:8188/history/${promptId}`,
-					{ cache: "no-store" },
-				);
-
-				if (!historyResponse.ok) {
-					throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
-				}
-
-				const historyData = await historyResponse.json();
-				console.log("히스토리 데이터:", historyData);
-
-				// 히스토리 데이터가 비어있지 않고 outputs 속성이 있는지 확인
-				if (
-					historyData &&
-					Object.keys(historyData).length > 0 &&
-					historyData[promptId] &&
-					historyData[promptId].outputs
-				) {
-					// 이미지 정보 처리
-					for (const nodeId in historyData[promptId].outputs) {
-						const nodeOutput = historyData[promptId].outputs[nodeId];
-						if (
-							nodeOutput &&
-							nodeOutput.images &&
-							nodeOutput.images.length > 0
-						) {
-							const image = nodeOutput.images[0];
-							const imageName = image.filename;
-							const imageUrl = `http://localhost:8188/view?filename=${encodeURIComponent(imageName)}`;
-
-							console.log("이미지 URL 생성됨:", imageUrl);
-							generatedImage = imageUrl;
-
-							// 시드 값 찾기
-							try {
-								if (
-									historyData[promptId].prompt &&
-									historyData[promptId].prompt[2] &&
-									historyData[promptId].prompt[2]["3"]
-								) {
-									seedValue = historyData[promptId].prompt[2]["3"].inputs.seed;
-									console.log("시드 값:", seedValue);
-								}
-							} catch (error) {
-								console.error("시드 값 찾기 오류:", error);
-							}
-
-							// 로딩 상태 종료
-							isLoading = false;
-							progressPercent = 0;
-							return true;
-						}
-					}
-				}
-
-				// 아직 데이터가 없거나 이미지를 찾지 못한 경우
-				attempts++;
-			} catch (error) {
-				console.error("히스토리 데이터 폴링 오류:", error);
-				attempts++;
-				if (attempts < maxAttempts && isLoading) {
-					// 오류 발생 시 1.5초 후 다시 시도
-					setTimeout(checkHistory, 1500);
-				} else {
-					errorMessage =
-						error instanceof Error
-							? error.message
-							: "알 수 없는 오류가 발생했습니다.";
-					isLoading = false;
+					console.error("웹소켓 메시지 파싱 오류:", error);
 				}
 			}
 		};
 
-		// 첫 번째 시도 시작
-		checkHistory();
+		// 연결 종료 이벤트 핸들러
+		socket.onclose = (event) => {
+			isConnected = false;
+			connectionStatus = `종료: ${event.reason || "알 수 없는 이유"}`;
+			console.log("웹소켓 연결 종료:", event);
+
+			// 3초 후 재연결 시도
+			setTimeout(connectWebSocket, 3000);
+		};
+
+		// 오류 이벤트 핸들러
+		socket.onerror = (error) => {
+			isConnected = false;
+			connectionStatus = "오류";
+			console.error("웹소켓 오류:", error);
+		};
 	}
 
-	// 생성된 이미지 정보 가져오기 (이전 메서드, 이제 pollHistoryData로 대체됨)
-	async function fetchGeneratedImage(promptId: string) {
-		try {
-			const historyResponse = await fetch(
-				`http://localhost:8188/history/${promptId}`,
-				{ cache: "no-store" },
-			);
+	// 웹소켓 메시지 처리 함수
+	function handleWebSocketMessage(message: any) {
+		console.log("웹소켓 메시지 수신:", message);
 
-			if (!historyResponse.ok) {
-				throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
-			}
+		switch (message.type) {
+			case "connection_status":
+				isConnected = message.status === "connected";
+				connectionStatus = message.message;
+				break;
 
-			const historyData = await historyResponse.json();
-			console.log("히스토리 데이터:", historyData);
+			case "connection_error":
+				isConnected = false;
+				connectionStatus = message.message;
+				errorMessage = message.message;
+				break;
 
-			// 출력에서 이미지 찾기
-			if (historyData.outputs) {
-				for (const nodeId in historyData.outputs) {
-					const nodeOutput = historyData.outputs[nodeId];
-					if (nodeOutput && nodeOutput.images && nodeOutput.images.length > 0) {
-						const image = nodeOutput.images[0];
-						const imageName = image.filename;
-						const imageUrl = `http://localhost:8188/view?filename=${encodeURIComponent(imageName)}`;
+			case "prompt_queued":
+				currentPromptId = message.prompt_id;
+				processingStage = "프롬프트 큐에 추가됨";
+				break;
 
-						console.log("이미지 생성 완료:", imageUrl);
-						generatedImage = imageUrl;
+			case "progress":
+				// 진행 상황 업데이트
+				currentNode = message.node || "";
+				progressValue = message.progress || 0;
 
-						// 시드 값 찾기
-						try {
-							if (
-								historyData.prompt &&
-								historyData.prompt[2] &&
-								historyData.prompt[2]["3"]
-							) {
-								seedValue = historyData.prompt[2]["3"].inputs.seed;
-								console.log("시드 값:", seedValue);
-							}
-						} catch (error) {
-							console.error("시드 값 찾기 오류:", error);
-						}
+				// 노드 이름에 따라 진행 단계 표시
+				if (currentNode.includes("Check")) {
+					processingStage = "모델 로드 중...";
+				} else if (currentNode.includes("CLIP")) {
+					processingStage = "텍스트 분석 중...";
+				} else if (
+					currentNode.includes("KSampler") ||
+					currentNode.includes("Sampler")
+				) {
+					processingStage = `이미지 생성 중... ${progressValue}%`;
+				} else if (currentNode.includes("VAE")) {
+					processingStage = "이미지 디코딩 중...";
+				} else if (currentNode.includes("SaveImage")) {
+					processingStage = "이미지 저장 중...";
+				} else {
+					processingStage = `${currentNode} 처리 중...`;
+				}
+				break;
 
-						// 로딩 상태 종료
-						isLoading = false;
-						progressPercent = 0;
-						return true;
+			case "execution_complete":
+				// 실행 완료 처리
+				progressValue = 100;
+				processingStage = "처리 완료, 결과를 불러오는 중...";
+				break;
+
+			case "result":
+				// 최종 결과 처리
+				seedValue = message.seed;
+
+				if (message.images && message.images.length > 0) {
+					const outputImages = message.images.filter(
+						(img: any) => img.type === "output",
+					);
+					if (outputImages.length > 0) {
+						// output 타입 이미지 사용
+						const imageUrl = outputImages[0].url;
+						generatedImage = `http://localhost:8000${imageUrl}`;
+					} else {
+						// output 타입이 없으면 첫 번째 이미지 사용
+						const imageUrl = message.images[0].url;
+						generatedImage = `http://localhost:8000${imageUrl}`;
 					}
 				}
-			}
 
-			// 이미지를 찾지 못한 경우
-			console.warn("이미지를 찾지 못했습니다:", historyData);
-			return false;
-		} catch (error) {
-			console.error("이미지 정보 가져오기 오류:", error);
-			errorMessage =
-				error instanceof Error
-					? error.message
-					: "이미지 정보를 가져오는데 실패했습니다.";
-			isLoading = false;
-			return false;
+				console.log("최종 이미지", generatedImage);
+
+				// 로딩 상태 종료
+				isLoading = false;
+				processingStage = "";
+				break;
+
+			case "error":
+				// 오류 처리
+				errorMessage = message.message;
+				isLoading = false;
+				processingStage = "";
+				break;
 		}
+	}
+
+	// 서버 재연결 함수
+	function reconnectServer() {
+		if (socket) {
+			socket.close();
+		}
+		connectWebSocket();
 	}
 
 	// 프롬프트 생성
 	const generatePrompt = (): string => {
-		return `(masterpiece, best quality, high detail, anime, grey background, from head to toe), 
-		a ${selectedAge} ${selectedBodyType} ${selectedGender} character in ${selectedTheme} setting, 
-		wearing a ${selectedClothing}, with ${selectedHairColor} ${selectedHairLength} hair (${selectedHairCurl}), 
-		${selectedEyeColor} eyes, ${selectedEyeSize} eyes, detailed facial features, ultra HD`;
+		return `(masterpiece, best quality, high detail, anime, gray background, background with nothing, 
+		from head to toe, Standing straight ahead and looking at the viewer), 
+		a ${selectedAge} ${selectedGender} character in ${selectedTheme} setting,`;
 	};
 
-	async function generateImage() {
+	// 웹소켓을 통한 이미지 생성 요청
+	function generateImageViaWebSocket() {
+		if (!socket || socket.readyState !== WebSocket.OPEN) {
+			errorMessage =
+				"서버에 연결되어 있지 않습니다. 다시 연결을 시도해 주세요.";
+			return;
+		}
+
+		// 로딩 상태 시작
 		isLoading = true;
 		generatedImage = null;
 		errorMessage = null;
-		progressPercent = 0;
+		progressValue = 0;
+		currentNode = "";
+		processingStage = "준비 중...";
+
+		// 프롬프트 생성
+		let positivePrompt = generatePrompt();
+		if (randomPrompt && randomPrompt.trim() !== "") {
+			positivePrompt += ` ${randomPrompt.trim()}`;
+		}
+
+		// 메시지 데이터 준비
+		const promptData = {
+			type: "prompt",
+			prompt_text: positivePrompt,
+			workflow_name: "default",
+			seed: null, // 랜덤 시드 사용
+		};
+
+		// 메시지 전송
+		socket.send(JSON.stringify(promptData));
+		console.log("웹소켓을 통해 프롬프트 전송:", promptData);
+	}
+
+	// 기존 HTTP API를 통한 이미지 생성 요청
+	async function generateImage() {
+		// 웹소켓이 연결된 경우 웹소켓을 통해 요청
+		if (isConnected && socket && socket.readyState === WebSocket.OPEN) {
+			generateImageViaWebSocket();
+			return;
+		}
+
+		// 웹소켓 연결이 없는 경우 기존 방식으로 요청 진행
+		isLoading = true;
+		generatedImage = null;
+		errorMessage = null;
 
 		try {
-			const positivePrompt = generatePrompt();
-			const negativePrompt =
-				"((bad hands:1)), ((extra fingers:1)), ((deformed hands:1)), ((unhealthy hands:1)), ((excess limbs:1.1)),((lowres)),((worst quality)), ((bad quality)), ((low quality)), naked, nsfw";
+			let positivePrompt = generatePrompt();
 
-			const workflow = {
-				"3": {
-					inputs: {
-						seed: Math.floor(Math.random() * 1000000000000000),
-						steps: 20,
-						cfg: 8,
-						sampler_name: "euler",
-						scheduler: "normal",
-						denoise: 1,
-						model: ["4", 0],
-						positive: ["6", 0],
-						negative: ["7", 0],
-						latent_image: ["5", 0],
-					},
-					class_type: "KSampler",
-					_meta: {
-						title: "KSampler",
-					},
-				},
-				"4": {
-					inputs: {
-						ckpt_name: "v1-5-pruned-emaonly.safetensors",
-					},
-					class_type: "CheckpointLoaderSimple",
-					_meta: {
-						title: "Load Checkpoint",
-					},
-				},
-				"5": {
-					inputs: {
-						width: 512,
-						height: 768,
-						batch_size: 1,
-					},
-					class_type: "EmptyLatentImage",
-					_meta: {
-						title: "Empty Latent Image",
-					},
-				},
-				"6": {
-					inputs: {
-						text: positivePrompt,
-						clip: ["4", 1],
-					},
-					class_type: "CLIPTextEncode",
-					_meta: {
-						title: "CLIP Text Encode (Prompt)",
-					},
-				},
-				"7": {
-					inputs: {
-						text: negativePrompt,
-						clip: ["4", 1],
-					},
-					class_type: "CLIPTextEncode",
-					_meta: {
-						title: "CLIP Text Encode (Negative Prompt)",
-					},
-				},
-				"8": {
-					inputs: {
-						samples: ["3", 0],
-						vae: ["4", 2],
-					},
-					class_type: "VAEDecode",
-					_meta: {
-						title: "VAE Decode",
-					},
-				},
-				"9": {
-					inputs: {
-						filename_prefix: "ComfyUI",
-						images: ["8", 0],
-					},
-					class_type: "SaveImage",
-					_meta: {
-						title: "Save Image",
-					},
-				},
-			};
+			if (randomPrompt && randomPrompt.trim() !== "") {
+				positivePrompt += ` ${randomPrompt.trim()}`;
+			}
+
+			console.log("사용 프롬프트:", positivePrompt);
 
 			const promptData = {
-				prompt: workflow,
+				prompt_text: positivePrompt,
+				workflow_name: "default",
 				client_id: `svelte_${Date.now()}`,
 			};
 
+			console.log(positivePrompt);
 			console.log("이미지 생성 프롬프트 전송:", promptData);
 
 			// ComfyUI API 직접 호출 대신 FastAPI 서버 호출
@@ -429,81 +310,7 @@
 			const promptId = data.prompt_id;
 			console.log("프롬프트ID:", promptId);
 
-			// 전역 변수에 promptId 저장
-			promptCache.lastPromptId = promptId;
-
-			// 주기적으로 히스토리 확인
-			const checkInterval = setInterval(async () => {
-				if (!isLoading) {
-					clearInterval(checkInterval);
-					return;
-				}
-
-				try {
-					// FastAPI 서버에서 히스토리 가져오기
-					const historyResponse = await fetch(
-						`http://localhost:8000/api/history/${promptId}`,
-						{ cache: "no-store" },
-					);
-
-					if (!historyResponse.ok) {
-						throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
-					}
-
-					const historyData = await historyResponse.json();
-
-					// 이미지 정보 찾기
-					if (
-						historyData &&
-						historyData[promptId] &&
-						historyData[promptId].outputs
-					) {
-						for (const nodeId in historyData[promptId].outputs) {
-							const nodeOutput = historyData[promptId].outputs[nodeId];
-							if (
-								nodeOutput &&
-								nodeOutput.images &&
-								nodeOutput.images.length > 0
-							) {
-								const image = nodeOutput.images[0];
-								const imageName = image.filename;
-
-								// FastAPI 이미지 URL로 변경
-								const imageUrl = `http://localhost:8000/api/image?filename=${encodeURIComponent(imageName)}`;
-
-								console.log("이미지 생성 완료:", imageUrl);
-								generatedImage = imageUrl;
-
-								// 시드 값 찾기
-								try {
-									if (
-										historyData[promptId].prompt &&
-										historyData[promptId].prompt["3"]
-									) {
-										seedValue = historyData[promptId].prompt["3"].inputs.seed;
-										console.log("시드 값:", seedValue);
-									}
-								} catch (error) {
-									console.error("시드 값 찾기 오류:", error);
-								}
-
-								// 로딩 상태 종료
-								isLoading = false;
-								progressPercent = 0;
-								clearInterval(checkInterval);
-								return;
-							}
-						}
-					}
-
-					// 이미지를 아직 찾지 못함, 계속 확인
-					console.log("이미지 생성 중...");
-				} catch (error) {
-					console.error("히스토리 확인 오류:", error);
-					isLoading = false;
-					clearInterval(checkInterval);
-				}
-			}, 1000); // 1초마다 확인
+			fetchGeneratedImage(promptId);
 		} catch (error) {
 			console.error("이미지 생성 중 오류:", error);
 			errorMessage =
@@ -513,15 +320,91 @@
 			isLoading = false;
 		}
 	}
+
+	// 기존 이미지 가져오기 함수 (웹소켓 연결이 실패했을 때 폴백용)
+	async function fetchGeneratedImage(promptId: string) {
+		try {
+			console.log("히스토리 데이터 확인 시작, promptId:", promptId);
+
+			const historyResponse = await fetch(
+				`http://localhost:8000/api/history/${promptId}`,
+				{ cache: "no-store" },
+			);
+
+			if (!historyResponse.ok) {
+				throw new Error("히스토리 정보를 가져오는데 실패했습니다.");
+			}
+
+			const historyData = await historyResponse.json();
+			console.log("히스토리 데이터:", historyData);
+
+			// promptId로 시작하는 객체 내에서 정보를 찾습니다
+			if (
+				historyData &&
+				historyData[promptId] &&
+				historyData[promptId].outputs
+			) {
+				const outputs = historyData[promptId].outputs;
+
+				// 출력 노드들을 검사합니다 (19가 SaveImage 노드입니다)
+				for (const nodeId in outputs) {
+					const nodeOutput = outputs[nodeId];
+					if (nodeOutput && nodeOutput.images && nodeOutput.images.length > 0) {
+						const image = nodeOutput.images[0];
+						const imageName = image.filename;
+
+						// 파일명을 포함하여 이미지 URL 생성
+						const imageUrl = `http://localhost:8000/api/image?filename=${encodeURIComponent(imageName)}`;
+						console.log("이미지 생성 완료:", imageUrl);
+
+						generatedImage = imageUrl;
+
+						// 시드 값 찾기 (RandomNoise 노드는 37번입니다)
+						try {
+							if (
+								historyData[promptId].prompt &&
+								historyData[promptId].prompt["37"]
+							) {
+								seedValue =
+									historyData[promptId].prompt["37"].inputs.noise_seed;
+								console.log("시드 값:", seedValue);
+							}
+						} catch (error) {
+							console.error("시드 값 찾기 오류:", error);
+						}
+
+						// 로딩 상태 종료
+						isLoading = false;
+						return true;
+					}
+				}
+			}
+
+			// 이미지를 찾지 못한 경우 1초 후 다시 시도합니다 (최대 30초)
+			console.warn("이미지를 찾지 못했습니다, 다시 시도합니다...");
+			if (isLoading) {
+				setTimeout(() => fetchGeneratedImage(promptId), 1000);
+			}
+			return false;
+		} catch (error) {
+			console.error("이미지 정보 가져오기 오류:", error);
+			errorMessage =
+				error instanceof Error
+					? error.message
+					: "이미지 정보를 가져오는데 실패했습니다.";
+			isLoading = false;
+			return false;
+		}
+	}
 </script>
 
 <h2 class="mb-4 text-3xl font-semibold text-gray-600">
-	CompyUI 예시코드를 활용한 이미지 생성
+	CompyUI 예시코드를 활용한 이미지 생성 (웹소켓 연동)
 </h2>
 <div class="grid w-full grid-cols-2 gap-8 p-4">
 	<!-- 왼쪽 컬럼: 단계별 입력 폼 -->
 	<div class="p-6 bg-white shadow-lg rounded-xl">
-		<!-- <div class="flex items-center justify-end mb-2">
+		<div class="flex items-center justify-end mb-2">
 			<div
 				class="flex items-center gap-2 px-3 py-1 text-sm rounded-full {isConnected
 					? 'bg-green-100 text-green-700'
@@ -542,7 +425,7 @@
 					</button>
 				{/if}
 			</div>
-		</div> -->
+		</div>
 		<!-- 스텝 인디케이터 -->
 		<div class="mb-6">
 			<div class="flex justify-between mb-4">
@@ -637,244 +520,25 @@
 						{/each}
 					</div>
 				</div>
-
-				<!-- 직업 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">직업</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.classOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedClass ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedClass = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
 				<!-- 랜덤 -->
+			{:else if currentStep === 1}
 				<div class="mb-6">
 					<h3 class="mb-3 text-lg font-semibold text-gray-700">
 						사용자 지정 프롬프트
 					</h3>
 					<div class="flex flex-wrap gap-2">
 						<textarea
+							value={randomPrompt}
+							on:input={(e: Event) => {
+								randomPrompt = (e.target as HTMLTextAreaElement).value;
+							}}
 							name="randomPrompt"
 							id="randomPrompt"
 							class="w-full px-4 py-2 text-sm text-gray-700 transition-colors duration-200 bg-white border border-gray-300 rounded-lg resize-none hover:bg-gray-100"
 						></textarea>
-						<!-- {#each promptOptions.classOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedClass ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedClass = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each} -->
-					</div>
-				</div>
-			{:else if currentStep === 1}
-				<!-- 체형 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">체형</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.bodyTypeOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedBodyType ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedBodyType = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- 의상 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">의상</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.clothingOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedClothing ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedClothing = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">머리색</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.hairColorOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedHairColor ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedHairColor = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<div class="flex justify-between">
-					<div class="mb-6">
-						<h3 class="mb-3 text-lg font-semibold text-gray-700">머리길이</h3>
-						<div class="flex flex-wrap gap-2">
-							{#each promptOptions.hairLengthOptions as option}
-								<button
-									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedHairLength ===
-									option.value
-										? 'bg-blue-500 text-white border-blue-500'
-										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-									on:click={() => (selectedHairLength = option.value)}
-								>
-									{option.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-					<div class="mb-6">
-						<h3 class="mb-3 text-lg font-semibold text-gray-700">머릿결</h3>
-						<div class="flex flex-wrap gap-2">
-							{#each promptOptions.hairCurlOptions as option}
-								<button
-									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedHairCurl ===
-									option.value
-										? 'bg-blue-500 text-white border-blue-500'
-										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-									on:click={() => (selectedHairCurl = option.value)}
-								>
-									{option.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-				</div>
-
-				<div class="flex justify-between">
-					<div class="mb-6">
-						<h3 class="mb-3 text-lg font-semibold text-gray-700">눈동자 색</h3>
-						<div class="flex flex-wrap gap-2">
-							{#each promptOptions.eyeColorOptions as option}
-								<button
-									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedEyeColor ===
-									option.value
-										? 'bg-blue-500 text-white border-blue-500'
-										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-									on:click={() => (selectedEyeColor = option.value)}
-								>
-									{option.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-					<div class="mb-6">
-						<h3 class="mb-3 text-lg font-semibold text-gray-700">눈 크기</h3>
-						<div class="flex flex-wrap gap-2">
-							{#each promptOptions.eyeSizeOptions as option}
-								<button
-									class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedEyeSize ===
-									option.value
-										? 'bg-blue-500 text-white border-blue-500'
-										: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-									on:click={() => (selectedEyeSize = option.value)}
-								>
-									{option.label}
-								</button>
-							{/each}
-						</div>
 					</div>
 				</div>
 			{:else if currentStep === 2}
-				<!-- 가족 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">가족</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.familyOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedFamily ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedFamily = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- 가문의 역사 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">가문의 역사</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.familyHistoryOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedFamilyHistory ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedFamilyHistory = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- 출신 지역 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">출신 지역</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.regionOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedRegion ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedRegion = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- 성격 유형 -->
-				<div class="mb-6">
-					<h3 class="mb-3 text-lg font-semibold text-gray-700">성격 유형</h3>
-					<div class="flex flex-wrap gap-2">
-						{#each promptOptions.personalityOptions as option}
-							<button
-								class="px-4 py-2 rounded-lg text-sm border transition-colors duration-200 {selectedPersonality ===
-								option.value
-									? 'bg-blue-500 text-white border-blue-500'
-									: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}"
-								on:click={() => (selectedPersonality = option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-			{:else if currentStep === 3}
 				<div class="p-4 space-y-4 rounded-lg bg-gray-50">
 					<!-- 모든 선택 항목 요약 표시 -->
 					<div class="grid grid-cols-2 gap-4">
@@ -906,123 +570,8 @@
 						</div>
 
 						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">직업</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.classOptions,
-									selectedClass,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">체형</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.bodyTypeOptions,
-									selectedBodyType,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">의상</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.clothingOptions,
-									selectedClothing,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">머리색</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.hairColorOptions,
-									selectedHairColor,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">머리길이</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.hairLengthOptions,
-									selectedHairLength,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">머릿결</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.hairCurlOptions,
-									selectedHairCurl,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">눈동자색</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.eyeColorOptions,
-									selectedEyeColor,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">눈크기</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.eyeSizeOptions,
-									selectedEyeSize,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">가족</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.familyOptions,
-									selectedFamily,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">가문의 역사</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.familyHistoryOptions,
-									selectedFamilyHistory,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">출신 지역</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.regionOptions,
-									selectedRegion,
-								)}</span
-							>
-						</div>
-
-						<div class="flex flex-col">
-							<span class="text-sm text-gray-500">성격 유형</span>
-							<span class="font-medium"
-								>{getOptionLabel(
-									promptOptions.personalityOptions,
-									selectedPersonality,
-								)}</span
-							>
+							<span class="text-sm text-gray-500">사용자 입력 프롬프트</span>
+							<span class="font-medium">{randomPrompt}</span>
 						</div>
 					</div>
 				</div>
@@ -1065,32 +614,34 @@
 
 	<div class="flex flex-col w-full gap-6">
 		<div class="w-full p-4 text-center bg-white shadow-lg rounded-xl">
-			<!-- <h2 class="mb-2 text-xl font-bold text-gray-800">캐릭터 결과</h2> -->
-
 			<div class="flex flex-col items-center justify-center w-full h-full">
 				{#if isLoading}
-					<div class="text-center">
-						<p class="mb-3 text-gray-700">캐릭터를 생성하는 중입니다...</p>
+					<div class="w-full text-center">
+						<p class="mb-3 text-gray-700">
+							{processingStage || "캐릭터를 생성하는 중입니다..."}
+						</p>
 
-						<!-- 진행률 표시 -->
-						{#if progressPercent > 0}
-							<div class="w-full max-w-md mx-auto mb-4">
+						<!-- 진행 표시줄 -->
+						{#if progressValue > 0}
+							<div class="w-full bg-gray-200 rounded-full h-2.5 mb-4">
 								<div
-									class="relative h-4 overflow-hidden bg-gray-200 rounded-full"
-								>
-									<div
-										class="absolute top-0 left-0 h-full bg-blue-600 rounded-full"
-										style="width: {progressPercent}%"
-									></div>
-								</div>
-								<p class="mt-1 text-sm text-gray-600">
-									{progressPercent}% 완료
-								</p>
+									class="bg-blue-600 h-2.5 rounded-full"
+									style="width: {progressValue}%"
+								></div>
 							</div>
 						{:else}
 							<div
-								class="inline-block w-12 h-12 mt-2 border-4 border-blue-200 rounded-full border-l-blue-600 animate-spin"
-							></div>
+								class="w-full h-2 mb-4 overflow-hidden bg-gray-200 rounded-full"
+							>
+								<div
+									class="h-full bg-blue-500 rounded-full animate-progress"
+								></div>
+							</div>
+						{/if}
+
+						<!-- 현재 작업 노드 표시 -->
+						{#if currentNode}
+							<p class="text-xs text-gray-500">현재 처리 중: {currentNode}</p>
 						{/if}
 					</div>
 				{:else if !generatedImage && !errorMessage}
@@ -1104,19 +655,19 @@
 				{:else if errorMessage}
 					<div class="w-full p-4 text-red-700 rounded-lg bg-red-50">
 						<p>오류 발생: {errorMessage}</p>
-						<!-- {#if !isConnected}
+						{#if !isConnected}
 							<button
 								on:click={reconnectServer}
 								class="px-4 py-2 mt-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
 							>
 								서버 연결 시도
 							</button>
-						{/if} -->
+						{/if}
 					</div>
 				{:else if generatedImage}
 					<div class="text-center">
 						<img
-							src="http://localhost:8188/view?filename=ComfyUI_00016_.png"
+							src={generatedImage}
 							alt="생성된 캐릭터"
 							class="object-contain rounded-lg shadow-lg max-w-full max-h-[500px]"
 						/>
@@ -1124,16 +675,9 @@
 							<p class="mt-2 text-gray-700">시드: {seedValue}</p>
 						{/if}
 						<div class="mt-4">
-							<a
-								href={generatedImage}
-								download="generated-character.png"
-								class="inline-flex items-center px-6 py-3 font-medium text-white transition duration-200 bg-green-600 rounded-lg hover:bg-green-700"
-							>
-								저장하기
-							</a>
 							<button
 								on:click={generateImage}
-								disabled={isLoading || !isConnected}
+								disabled={isLoading}
 								class="inline-flex items-center px-6 py-3 ml-2 font-medium text-white transition duration-200 bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
 							>
 								다시 생성
@@ -1145,3 +689,25 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	/* 프로그레스 바 애니메이션 */
+	@keyframes progress {
+		0% {
+			width: 0%;
+			margin-left: 0%;
+		}
+		50% {
+			width: 30%;
+			margin-left: 70%;
+		}
+		100% {
+			width: 0%;
+			margin-left: 100%;
+		}
+	}
+
+	.animate-progress {
+		animation: progress 1.5s ease-in-out infinite;
+	}
+</style>
