@@ -289,7 +289,6 @@
 			console.log(positivePrompt);
 			console.log("이미지 생성 프롬프트 전송:", promptData);
 
-			// ComfyUI API 직접 호출 대신 FastAPI 서버 호출
 			const response = await fetch("http://localhost:8000/api/generate-image", {
 				method: "POST",
 				headers: {
